@@ -144,7 +144,7 @@ void MainWindow::on_extract_message_button_released()
     char * videoLocation = &videoLocationStr[0];
     extract_frames(videoLocation, this->stegoFrames);
 
-    getMessageFromStegoFrames(this->stegoFrames, messageBits, 52264, key);
+    getMessageFromStegoFrames(this->stegoFrames, messageBits, key);
 
     this->extractedSecretMessage = arraysOfBitsToSecretMessage(permuteMessageBitsInverse(messageBits, key));
     QString size = QString::number(permuteMessageBitsInverse(messageBits, key).size());
@@ -168,8 +168,6 @@ void MainWindow::on_save_message_button_released()
 
     ui->label_status->setText("Finished!");
 }
-
-
 
 void MainWindow::on_extract_message_button_pressed()
 {

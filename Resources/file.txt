@@ -1,135 +1,121 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
-#include <string.h>
-#include "FrameProcessing.h"
-#include "VideoProcessing.h"
-#include "Message.h"
-#include "EncryptionAndDecryption.h"
 
 using namespace std;
 using namespace cv;
 
-//returns 1 if yes, 0 otherwise
-long getMaximumNumberOfBits(vector<Mat> inputFrames) {
-    long numberOfFrames = (long)inputFrames.size();
-    long nrPixels = inputFrames[0].rows * inputFrames[0].cols;
-    long maxNrOfMessageBitsInFrame = nrPixels * 3 + nrPixels * 2 * 2; //Y => 3 pixels, U => 2 pixels, V => 2 pixels
-    long maxTotalNrOfMessageBits = numberOfFrames * maxNrOfMessageBitsInFrame;
-    return maxTotalNrOfMessageBits;
+#define ERR_NO_NUM -1
+#define ERR_NO_MEM -2
+
+int myRandom(int size) {
+    int i, n;
+    static int numNums = 0;
+    static int* numArr = NULL;
+
+    // Initialize with a specific size.
+
+    if (size >= 0) {
+        if (numArr != NULL)
+            free(numArr);
+        if ((numArr = (int*)malloc(sizeof(int) * size)) == NULL)
+            return ERR_NO_MEM;
+        for (i = 0; i < size; i++)
+            numArr[i] = i;
+        numNums = size;
+    }
+
+    // Error if no numbers left in pool.
+
+    if (numNums == 0)
+        return ERR_NO_NUM;
+
+    // Get random number from pool and remove it (rnd in this
+    //   case returns a number between 0 and numNums-1 inclusive).
+
+    n = rand() % numNums;
+    i = numArr[n];
+    numArr[n] = numArr[numNums - 1];
+    numNums--;
+    if (numNums == 0) {
+        free(numArr);
+        numArr = 0;
+    }
+
+    return i;
 }
 
-void getStegoFrames(vector<Mat> inputFrames, vector<int> inputBitsMessage, vector<Mat>& outputFrames, char * key) {
-    long maxNrOfBits = getMaximumNumberOfBits(inputFrames);
-    if (inputBitsMessage.size() <= maxNrOfBits) {
-        int messageFinished = 0;
-        //Split frame into 3 channels (R, G, B)
-        //permute pixels in each channel
-        for (int i = 0; i < inputFrames.size(); i++) {
-            vector<Mat> frameChannels = splitFrameChannels(inputFrames[i]);
-            Mat permutedY = permuteFramePixels(frameChannels[0], key);
-            Mat permutedU = permuteFramePixels(frameChannels[1], key);
-            Mat permutedV = permuteFramePixels(frameChannels[2], key);
-
-            for (int row = 0; row < permutedY.rows && messageFinished == 0; row++) {
-                for (int col = 0; col < permutedY.cols && messageFinished == 0; col++) {
-                    vector<int> currentYPixelValue = unsignedchar2bits(permutedY.at<uchar>(row, col));
-                    vector<int> currentUPixelValue = unsignedchar2bits(permutedU.at<uchar>(row, col));
-                    vector<int> currentVPixelValue = unsignedchar2bits(permutedV.at<uchar>(row, col));
-
-                    for (int bit = 5; bit < 8 && messageFinished == 0; bit++) {
-                        if (inputBitsMessage.size() > 0) {
-                            currentYPixelValue.at(bit) = inputBitsMessage.front();
-                            inputBitsMessage.erase(inputBitsMessage.begin());
-                        }
-                        else {
-                            messageFinished = 1;
-                        }
-                    }
-                    for (int bit = 6; bit < 8 && messageFinished == 0; bit++) {
-                        if (inputBitsMessage.size() > 0) {
-                            currentUPixelValue.at(bit) = inputBitsMessage.front();
-                            inputBitsMessage.erase(inputBitsMessage.begin());
-                        }
-                        else {
-                            messageFinished = 1;
-                        }
-                    }
-                    for (int bit = 6; bit < 8 && messageFinished == 0; bit++) {
-                        if (inputBitsMessage.size() > 0) {
-                            currentVPixelValue.at(bit) = inputBitsMessage.front();
-                            inputBitsMessage.erase(inputBitsMessage.begin());
-                        }
-                        else {
-                            messageFinished = 1;
-                        }
-                    }
-                    unsigned char newYPixelValue = bits2unsignedchar(currentYPixelValue);
-                    permutedY.at<uchar>(row, col) = newYPixelValue;
-
-                    unsigned char newUPixelValue = bits2unsignedchar(currentUPixelValue);
-                    permutedU.at<uchar>(row, col) = newUPixelValue;
-
-                    unsigned char newVPixelValue = bits2unsignedchar(currentVPixelValue);
-                    permutedV.at<uchar>(row, col) = newVPixelValue;
-                }
-            }
-
-            Mat permutedYInverse = permuteFramePixelsInverse(permutedY, key);
-            Mat permutedUInverse = permuteFramePixelsInverse(permutedU, key);
-            Mat permutedVInverse = permuteFramePixelsInverse(permutedV, key);
-            vector<Mat> channels = { permutedYInverse, permutedUInverse, permutedVInverse };
-            Mat mergedChannels = mergeFrameChannels(channels);
-            outputFrames.push_back(mergedChannels);
+Mat permuteFramePixels(Mat frame, char key[]) {
+    srand(atoi(key));
+    Mat scrambledFrame = frame.clone();
+    for (int i = 0; i < frame.rows; i++) {
+        int j = 0;
+        int randPosition = myRandom(frame.cols);
+        while (randPosition >= 0) {
+            scrambledFrame.at<uchar>(i, j) = frame.at<uchar>(i, randPosition);
+            j++;
+            randPosition = myRandom(-1);
         }
     }
-    else {
-        cout << "\nThe file is to large! Select either a larger video or a smaller file!\n";
-    }
+
+    return scrambledFrame;
 }
 
-void getMessageFromStegoFrames(vector<Mat> stegoFrames, vector<vector<int>>& bitsMessage, int messageSize, char* key) {
-    vector<int> byte;
-    int currNrBits = messageSize;
-    //Split frame into 3 channels (R, G, B)
-    //permute pixels in each channel
-    for (int i = 0; i < stegoFrames.size() && currNrBits > 0; i++) {
-        vector<Mat> frameChannels = splitFrameChannels(stegoFrames[i]);
-        Mat permutedY = permuteFramePixels(frameChannels[0], key);
-        Mat permutedU = permuteFramePixels(frameChannels[1], key);
-        Mat permutedV = permuteFramePixels(frameChannels[2], key);
-
-        for (int row = 0; row < permutedY.rows && currNrBits > 0; row++) {
-            for (int col = 0; col < permutedY.cols && currNrBits > 0; col++) {
-                vector<int> currentYPixelValue = unsignedchar2bits(permutedY.at<uchar>(row, col));
-                vector<int> currentUPixelValue = unsignedchar2bits(permutedU.at<uchar>(row, col));
-                vector<int> currentVPixelValue = unsignedchar2bits(permutedV.at<uchar>(row, col));
-
-                for (int bit = 5; bit < 8 && currNrBits > 0; bit++) {
-                    if (byte.size() == 8) {
-                        bitsMessage.push_back(byte);
-                        byte.clear();
-                    }
-                    byte.push_back(currentYPixelValue.at(bit));
-                    currNrBits--;
-                }
-
-                for (int bit = 6; bit < 8 && currNrBits > 0; bit++) {
-                    if (byte.size() == 8) {
-                        bitsMessage.push_back(byte);
-                        byte.clear();
-                    }
-                    byte.push_back(currentUPixelValue.at(bit));
-                    currNrBits--;
-                }
-                for (int bit = 6; bit < 8 && currNrBits > 0; bit++) {
-                    if (byte.size() == 8) {
-                        bitsMessage.push_back(byte);
-                        byte.clear();
-                    }
-                    byte.push_back(currentVPixelValue.at(bit));
-                    currNrBits--;
-                }
-            }
+Mat permuteFramePixelsInverse(Mat frame, char key[]) {
+    srand(atoi(key));
+    Mat scrambledFrame = frame.clone();
+    for (int i = 0; i < frame.rows; i++) {
+        int j = 0;
+        int randPosition = myRandom(frame.cols);
+        while (randPosition >= 0) {
+            scrambledFrame.at<uchar>(i, randPosition) = frame.at<uchar>(i, j);
+            j++;
+            randPosition = myRandom(-1);
         }
     }
+
+    return scrambledFrame;
+}
+
+vector<int> permuteMessageBits(vector<vector<int>> messageBits, char key[]) {
+    srand(atoi(key));
+    vector<int> permutedBitsMessage;
+    //iterate over the vector of vector of bits
+    for (int i = 0; i < messageBits.size(); i++) {
+        //and for each byte, permute its pixels
+        int permutedBits[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        int randPosition = myRandom(8);
+        int j = 0; //iterator over the vector of bits
+        while (randPosition >= 0) {
+            permutedBits[randPosition] = messageBits[i][j++];
+            randPosition = myRandom(-1);
+        }
+        for (int i = 0; i < 8; i++) {
+            permutedBitsMessage.push_back(permutedBits[i]);
+        }
+    }
+
+    return permutedBitsMessage;
+}
+
+vector<vector<int>> permuteMessageBitsInverse(vector<vector<int>> messageBits, char key[]) {
+    srand(atoi(key));
+    vector<vector<int>> unPermutedBitsMessage;
+    //iterate over the vector of bits
+    for (int i = 0; i < messageBits.size(); i++) {
+        vector<int> unPermutedBits = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        int randPosition = myRandom(8);
+        int j = 0; //iterator over the vector of bits
+        while (randPosition >= 0) {
+            unPermutedBits.insert(unPermutedBits.begin() + j++, messageBits[i][randPosition]);
+            randPosition = myRandom(-1);
+        }
+        vector<int> aux;
+        for (auto it = unPermutedBits.begin(); it != unPermutedBits.end(); ++it) {
+            aux.push_back(*it);
+        }
+
+        unPermutedBitsMessage.push_back(aux);
+    }
+
+    return unPermutedBitsMessage;
 }

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
-#include <string.h>
+#include <string>
+#include <sstream>
 #include "FrameProcessing.h"
 #include "VideoProcessing.h"
 #include "Message.h"
@@ -8,6 +9,10 @@
 
 using namespace std;
 using namespace cv;
+
+vector<int> decToBinary(int numberOfBits, int numberOfBitsToBeRepresentedOn);
+
+int binaryToDecimal(vector<int> n);
 
 //returns 1 if yes, 0 otherwise
 long getMaximumNumberOfBits(vector<Mat> inputFrames) {
@@ -18,8 +23,10 @@ long getMaximumNumberOfBits(vector<Mat> inputFrames) {
     return maxTotalNrOfMessageBits;
 }
 
-void getStegoFrames(vector<Mat> inputFrames, vector<int> inputBitsMessage, vector<Mat>& outputFrames, char * key) {
+void getStegoFrames(vector<Mat> inputFrames, vector<int> message, vector<Mat>& outputFrames, char * key) {
     long maxNrOfBits = getMaximumNumberOfBits(inputFrames);
+    std::vector<int> inputBitsMessage(decToBinary(message.size(), 50));
+    inputBitsMessage.insert(inputBitsMessage.end(), message.begin(), message.end());
     if (inputBitsMessage.size() <= maxNrOfBits) {
         int messageFinished = 0;
         //Split frame into 3 channels (R, G, B)
@@ -87,9 +94,45 @@ void getStegoFrames(vector<Mat> inputFrames, vector<int> inputBitsMessage, vecto
     }
 }
 
-void getMessageFromStegoFrames(vector<Mat> stegoFrames, vector<vector<int>>& bitsMessage, int messageSize, char* key) {
+vector<int> getNumberOfMessageBits(vector<Mat> stegoFrames, char* key) {
+    int currNrBits = 50;
+    vector<int> nrBits;
+    for (int i = 0; i < stegoFrames.size() && currNrBits > 0; i++) {
+        vector<Mat> frameChannels = splitFrameChannels(stegoFrames[i]);
+        Mat permutedY = permuteFramePixels(frameChannels[0], key);
+        Mat permutedU = permuteFramePixels(frameChannels[1], key);
+        Mat permutedV = permuteFramePixels(frameChannels[2], key);
+
+        for (int row = 0; row < permutedY.rows && currNrBits > 0; row++) {
+            for (int col = 0; col < permutedY.cols && currNrBits > 0; col++) {
+                vector<int> currentYPixelValue = unsignedchar2bits(permutedY.at<uchar>(row, col));
+                vector<int> currentUPixelValue = unsignedchar2bits(permutedU.at<uchar>(row, col));
+                vector<int> currentVPixelValue = unsignedchar2bits(permutedV.at<uchar>(row, col));
+
+                for (int bit = 5; bit < 8 && currNrBits > 0; bit++) {
+                    nrBits.push_back(currentYPixelValue.at(bit));
+                    currNrBits--;
+                }
+
+                for (int bit = 6; bit < 8 && currNrBits > 0; bit++) {
+                    nrBits.push_back(currentUPixelValue.at(bit));
+                    currNrBits--;
+                }
+                for (int bit = 6; bit < 8 && currNrBits > 0; bit++) {
+                    nrBits.push_back(currentVPixelValue.at(bit));
+                    currNrBits--;
+                }
+            }
+        }
+    }
+
+    return nrBits;
+}
+
+void getMessageFromStegoFrames(vector<Mat> stegoFrames, vector<vector<int>>& bitsMessage, char* key) {
     vector<int> byte;
-    int currNrBits = messageSize;
+    int currNrBits = binaryToDecimal(getNumberOfMessageBits(stegoFrames, key)) + 50;
+    int count = 0;
     //Split frame into 3 channels (R, G, B)
     //permute pixels in each channel
     for (int i = 0; i < stegoFrames.size() && currNrBits > 0; i++) {
@@ -109,7 +152,9 @@ void getMessageFromStegoFrames(vector<Mat> stegoFrames, vector<vector<int>>& bit
                         bitsMessage.push_back(byte);
                         byte.clear();
                     }
-                    byte.push_back(currentYPixelValue.at(bit));
+                    if(count++ >= 50) {
+                        byte.push_back(currentYPixelValue.at(bit));
+                    }
                     currNrBits--;
                 }
 
@@ -118,7 +163,9 @@ void getMessageFromStegoFrames(vector<Mat> stegoFrames, vector<vector<int>>& bit
                         bitsMessage.push_back(byte);
                         byte.clear();
                     }
-                    byte.push_back(currentUPixelValue.at(bit));
+                    if(count++ >= 50) {
+                        byte.push_back(currentUPixelValue.at(bit));
+                    }
                     currNrBits--;
                 }
                 for (int bit = 6; bit < 8 && currNrBits > 0; bit++) {
@@ -126,10 +173,36 @@ void getMessageFromStegoFrames(vector<Mat> stegoFrames, vector<vector<int>>& bit
                         bitsMessage.push_back(byte);
                         byte.clear();
                     }
-                    byte.push_back(currentVPixelValue.at(bit));
+                    if(count++ >= 50) {
+                        byte.push_back(currentVPixelValue.at(bit));
+                    }
                     currNrBits--;
                 }
             }
         }
     }
+}
+
+vector<int> decToBinary(int decimalNumber, int numberOfBitsToBeRepresentedOn)
+{
+    std::vector<int> binaryNum(numberOfBitsToBeRepresentedOn, 0);
+
+    int i = numberOfBitsToBeRepresentedOn - 1;
+    int n = decimalNumber;
+    while (n > 0) {
+        binaryNum[i] = n % 2;
+        n = n / 2;
+        i--;
+    }
+
+    return binaryNum;
+}
+
+int binaryToDecimal(vector<int> n)
+{
+    int decimal = 0 ;
+    for(int i = 0; i < n.size(); i++) {
+        decimal = decimal << 1 | n[i];
+    }
+    return decimal;
 }
