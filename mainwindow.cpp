@@ -149,9 +149,11 @@ void MainWindow::on_extract_message_button_released()
     this->extractedSecretMessage = arraysOfBitsToSecretMessage(permuteMessageBitsInverse(messageBits, key));
     QString size = QString::number(permuteMessageBitsInverse(messageBits, key).size());
 
-    ui->lineEditKey2->setText(size);
-
-    ui->label_status->setText("Finished!");
+    if(this->extractedSecretMessage[0] == '\0') {
+        ui->label_status->setText("Wrong key!");
+    } else {
+        ui->label_status->setText("Finished!");
+    }
 }
 
 

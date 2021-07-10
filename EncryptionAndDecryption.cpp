@@ -45,7 +45,7 @@ int myRandom(int size) {
 }
 
 Mat permuteFramePixels(Mat frame, char key[]) {
-    srand(atoi(key));
+    srand(strlen(key));
     Mat scrambledFrame = frame.clone();
     for (int i = 0; i < frame.rows; i++) {
         int j = 0;
@@ -61,7 +61,7 @@ Mat permuteFramePixels(Mat frame, char key[]) {
 }
 
 Mat permuteFramePixelsInverse(Mat frame, char key[]) {
-    srand(atoi(key));
+    srand(strlen(key));
     Mat scrambledFrame = frame.clone();
     for (int i = 0; i < frame.rows; i++) {
         int j = 0;
@@ -77,7 +77,7 @@ Mat permuteFramePixelsInverse(Mat frame, char key[]) {
 }
 
 vector<int> permuteMessageBits(vector<vector<int>> messageBits, char key[]) {
-    srand(atoi(key));
+    srand(strlen(key));
     vector<int> permutedBitsMessage;
     //iterate over the vector of vector of bits
     for (int i = 0; i < messageBits.size(); i++) {
@@ -98,7 +98,7 @@ vector<int> permuteMessageBits(vector<vector<int>> messageBits, char key[]) {
 }
 
 vector<vector<int>> permuteMessageBitsInverse(vector<vector<int>> messageBits, char key[]) {
-    srand(atoi(key));
+    srand(strlen(key));
     vector<vector<int>> unPermutedBitsMessage;
     //iterate over the vector of bits
     for (int i = 0; i < messageBits.size(); i++) {
