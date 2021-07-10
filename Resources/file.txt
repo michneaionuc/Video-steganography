@@ -1,121 +1,191 @@
-#include <iostream>
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+
+#include <QFile>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QTextStream>
+
 #include <opencv2/opencv.hpp>
+#include <iostream>
+#include "FrameProcessing.h"
+#include "VideoProcessing.h"
+#include "EncryptionAndDecryption.h"
+#include "Steganography.h"
+#include "Message.h"
+#include <string.h>
+#include <QThread>
 
 using namespace std;
 using namespace cv;
 
-#define ERR_NO_NUM -1
-#define ERR_NO_MEM -2
-
-int myRandom(int size) {
-    int i, n;
-    static int numNums = 0;
-    static int* numArr = NULL;
-
-    // Initialize with a specific size.
-
-    if (size >= 0) {
-        if (numArr != NULL)
-            free(numArr);
-        if ((numArr = (int*)malloc(sizeof(int) * size)) == NULL)
-            return ERR_NO_MEM;
-        for (i = 0; i < size; i++)
-            numArr[i] = i;
-        numNums = size;
-    }
-
-    // Error if no numbers left in pool.
-
-    if (numNums == 0)
-        return ERR_NO_NUM;
-
-    // Get random number from pool and remove it (rnd in this
-    //   case returns a number between 0 and numNums-1 inclusive).
-
-    n = rand() % numNums;
-    i = numArr[n];
-    numArr[n] = numArr[numNums - 1];
-    numNums--;
-    if (numNums == 0) {
-        free(numArr);
-        numArr = 0;
-    }
-
-    return i;
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{    
+    ui->setupUi(this);
+    ui->recieveFrame->hide();
+    connect(ui->actionSend, &QAction::triggered, this, &MainWindow::showSend);
+    connect(ui->actionRecieve, &QAction::triggered, this, &MainWindow::showRecieve);
+    this->setCentralWidget(ui->centralwidget);
+    ui->label_status->setText(" ");
 }
 
-Mat permuteFramePixels(Mat frame, char key[]) {
-    srand(atoi(key));
-    Mat scrambledFrame = frame.clone();
-    for (int i = 0; i < frame.rows; i++) {
-        int j = 0;
-        int randPosition = myRandom(frame.cols);
-        while (randPosition >= 0) {
-            scrambledFrame.at<uchar>(i, j) = frame.at<uchar>(i, randPosition);
-            j++;
-            randPosition = myRandom(-1);
-        }
-    }
-
-    return scrambledFrame;
+MainWindow::~MainWindow()
+{
+    delete ui;
 }
 
-Mat permuteFramePixelsInverse(Mat frame, char key[]) {
-    srand(atoi(key));
-    Mat scrambledFrame = frame.clone();
-    for (int i = 0; i < frame.rows; i++) {
-        int j = 0;
-        int randPosition = myRandom(frame.cols);
-        while (randPosition >= 0) {
-            scrambledFrame.at<uchar>(i, randPosition) = frame.at<uchar>(i, j);
-            j++;
-            randPosition = myRandom(-1);
-        }
+void MainWindow::on_upload_video_button_released()
+{
+    QString fileName = QFileDialog::getOpenFileName(this, "Open the file");
+    QFile file(fileName);
+    currentFile = fileName;
+    if (!file.open(QIODevice::ReadOnly | QFile::Text)) {
+        QMessageBox::warning(this, "Warning", "Cannot open file: " + file.errorString());
+        return;
     }
-
-    return scrambledFrame;
+    QTextStream in(&file);
+    QString text = in.readAll();
+    ui->lineEditVideo->setText(fileName);
+    this->videoLocation = fileName;
+    file.close();
 }
 
-vector<int> permuteMessageBits(vector<vector<int>> messageBits, char key[]) {
-    srand(atoi(key));
-    vector<int> permutedBitsMessage;
-    //iterate over the vector of vector of bits
-    for (int i = 0; i < messageBits.size(); i++) {
-        //and for each byte, permute its pixels
-        int permutedBits[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-        int randPosition = myRandom(8);
-        int j = 0; //iterator over the vector of bits
-        while (randPosition >= 0) {
-            permutedBits[randPosition] = messageBits[i][j++];
-            randPosition = myRandom(-1);
-        }
-        for (int i = 0; i < 8; i++) {
-            permutedBitsMessage.push_back(permutedBits[i]);
-        }
-    }
 
-    return permutedBitsMessage;
+void MainWindow::on_upload_file_button_released()
+{
+    QString fileName = QFileDialog::getOpenFileName(this, "Open the file");
+    QFile file(fileName);
+    currentFile = fileName;
+    if (!file.open(QIODevice::ReadOnly | QFile::Text)) {
+        QMessageBox::warning(this, "Warning", "Cannot open file: " + file.errorString());
+        return;
+    }
+    QTextStream in(&file);
+    QString text = in.readAll();
+    ui->lineEditFile->setText(fileName);
+    this->fileLocation = fileName;
+    file.close();
 }
 
-vector<vector<int>> permuteMessageBitsInverse(vector<vector<int>> messageBits, char key[]) {
-    srand(atoi(key));
-    vector<vector<int>> unPermutedBitsMessage;
-    //iterate over the vector of bits
-    for (int i = 0; i < messageBits.size(); i++) {
-        vector<int> unPermutedBits = { 0, 0, 0, 0, 0, 0, 0, 0 };
-        int randPosition = myRandom(8);
-        int j = 0; //iterator over the vector of bits
-        while (randPosition >= 0) {
-            unPermutedBits.insert(unPermutedBits.begin() + j++, messageBits[i][randPosition]);
-            randPosition = myRandom(-1);
-        }
-        vector<int> aux;
-        for (auto it = unPermutedBits.begin(); it != unPermutedBits.end(); ++it) {
-            aux.push_back(*it);
-        }
-
-        unPermutedBitsMessage.push_back(aux);
-    }
-
-    return unPermutedBitsMessage;
+//returns 1 if yes, 0 otherwise
+long getMaximumNumberOfBits(vector<Mat> inputFrames) {
+    long numberOfFrames = (long)inputFrames.size();
+    long nrPixels = inputFrames[0].rows * inputFrames[0].cols;
+    long maxNrOfMessageBitsInFrame = nrPixels * 3 + nrPixels * 2 * 2; //Y => 3 pixels, U => 2 pixels, V => 2 pixels
+    long maxTotalNrOfMessageBits = numberOfFrames * maxNrOfMessageBitsInFrame;
+    return maxTotalNrOfMessageBits;
 }
+
+void MainWindow::on_generate_video_button_released()
+{
+    ui->label_status->setText("Processing...");
+    this->encryptionKey = ui->lineEditKey->text();
+
+    string keyStr(this->encryptionKey.toStdString());
+    char * key = &keyStr[0];
+
+    string fileLocationStr(this->fileLocation.toStdString());
+    char * fileLocation = &fileLocationStr[0];
+
+    string videoLocationStr(this->videoLocation.toStdString());
+    char * videoLocation = &videoLocationStr[0];
+
+    extract_frames(videoLocation, this->frames);
+
+    unsigned char * secretMEssage = getSecretMessageInBytes(fileLocation);
+    if((strlen((char*)secretMEssage) * 8) <= getMaximumNumberOfBits(this->frames)) {
+        vector<vector<int>> bits = secretMessageToArraysOfBits(secretMEssage);
+        vector<int> permutedBits = permuteMessageBits(bits, key);
+
+        getStegoFrames(this->frames, permutedBits,this->stegoFrames, key);
+        VideoCapture cap(videoLocation);
+        this->FPS = static_cast<int>(cap.get(CAP_PROP_FPS));
+        ui->label_status->setText("Finished!");
+    } else {
+        ui->label_status->setText("File is too large!");
+    }
+}
+
+void MainWindow::on_save_video_button_released()
+{
+    ui->label_status->setText("Saving video...");
+    QString fileName = QFileDialog::getOpenFileName(this, "Open the file");
+
+    // Get the width/height of the video frames
+    int width = this->frames[0].cols;
+    int height = this->frames[0].rows;
+
+    string videoLocationStr(fileName.toStdString());
+
+    char * stegoVideoLocation = &videoLocationStr[0];
+
+    saveVideo(stegoVideoLocation, this->stegoFrames, this->FPS, width, height);
+    ui->label_status->setText("Finished!");
+}
+
+
+void MainWindow::on_generate_video_button_pressed()
+{
+    ui->label_status->setText("Processing...");
+}
+
+void MainWindow::showSend() {
+    ui->sendFrame->show();
+    ui->recieveFrame->hide();
+}
+
+void MainWindow::showRecieve() {
+    ui->sendFrame->hide();
+    ui->recieveFrame->show();
+}
+
+
+void MainWindow::on_extract_message_button_released()
+{
+    ui->label_status->setText("Extracting the message...");
+    QString encryptionKey2 = ui->lineEditKey2->text();
+
+    vector<vector<int>> messageBits;
+
+    string keyStr(encryptionKey2.toStdString());
+
+    char * key = &keyStr[0];
+
+    string videoLocationStr(this->videoLocation.toStdString());
+    char * videoLocation = &videoLocationStr[0];
+    extract_frames(videoLocation, this->stegoFrames);
+
+    getMessageFromStegoFrames(this->stegoFrames, messageBits, key);
+
+    this->extractedSecretMessage = arraysOfBitsToSecretMessage(permuteMessageBitsInverse(messageBits, key));
+    QString size = QString::number(permuteMessageBitsInverse(messageBits, key).size());
+
+    if(this->extractedSecretMessage[0] == '\0') {
+        ui->label_status->setText("Wrong key!");
+    } else {
+        ui->label_status->setText("Finished!");
+    }
+}
+
+
+void MainWindow::on_save_message_button_released()
+{
+    ui->label_status->setText("Saving the message...");
+    QString fileName = QFileDialog::getOpenFileName(this, "Open the file");
+
+    string messageLocationStr(fileName.toStdString());
+
+    char * messageLocation = &messageLocationStr[0];
+
+    saveSecretMessage(messageLocation, this->extractedSecretMessage);
+
+    ui->label_status->setText("Finished!");
+}
+
+void MainWindow::on_extract_message_button_pressed()
+{
+    ui->label_status->setText("Extracting the message...");
+}
+

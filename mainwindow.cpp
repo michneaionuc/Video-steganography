@@ -69,30 +69,43 @@ void MainWindow::on_upload_file_button_released()
     file.close();
 }
 
+//returns 1 if yes, 0 otherwise
+long getMaximumNumberOfBits(vector<Mat> inputFrames) {
+    long numberOfFrames = (long)inputFrames.size();
+    long nrPixels = inputFrames[0].rows * inputFrames[0].cols;
+    long maxNrOfMessageBitsInFrame = nrPixels * 3 + nrPixels * 2 * 2; //Y => 3 pixels, U => 2 pixels, V => 2 pixels
+    long maxTotalNrOfMessageBits = numberOfFrames * maxNrOfMessageBitsInFrame;
+    return maxTotalNrOfMessageBits;
+}
+
 void MainWindow::on_generate_video_button_released()
 {
     ui->label_status->setText("Processing...");
     this->encryptionKey = ui->lineEditKey->text();
 
     string keyStr(this->encryptionKey.toStdString());
-
     char * key = &keyStr[0];
 
     string fileLocationStr(this->fileLocation.toStdString());
     char * fileLocation = &fileLocationStr[0];
-    unsigned char * secretMEssage = getSecretMessageInBytes(fileLocation);
 
-    vector<vector<int>> bits = secretMessageToArraysOfBits(secretMEssage);
-    vector<int> permutedBits = permuteMessageBits(bits, key);
-
-    vector<vector<int>> messageBits;
     string videoLocationStr(this->videoLocation.toStdString());
     char * videoLocation = &videoLocationStr[0];
+
     extract_frames(videoLocation, this->frames);
-    getStegoFrames(this->frames, permutedBits,this->stegoFrames, key);
-    VideoCapture cap(videoLocation);
-    this->FPS = static_cast<int>(cap.get(CAP_PROP_FPS));
-    ui->label_status->setText("Finished!");
+
+    unsigned char * secretMEssage = getSecretMessageInBytes(fileLocation);
+    if((strlen((char*)secretMEssage) * 8) <= getMaximumNumberOfBits(this->frames)) {
+        vector<vector<int>> bits = secretMessageToArraysOfBits(secretMEssage);
+        vector<int> permutedBits = permuteMessageBits(bits, key);
+
+        getStegoFrames(this->frames, permutedBits,this->stegoFrames, key);
+        VideoCapture cap(videoLocation);
+        this->FPS = static_cast<int>(cap.get(CAP_PROP_FPS));
+        ui->label_status->setText("Finished!");
+    } else {
+        ui->label_status->setText("File is too large!");
+    }
 }
 
 void MainWindow::on_save_video_button_released()

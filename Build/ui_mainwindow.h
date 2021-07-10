@@ -142,7 +142,7 @@ public:
         lineEditFile->setStyleSheet(QString::fromUtf8(""));
         label_status = new QLabel(centralwidget);
         label_status->setObjectName(QString::fromUtf8("label_status"));
-        label_status->setGeometry(QRect(20, 630, 471, 51));
+        label_status->setGeometry(QRect(20, 630, 1001, 51));
         label_status->setStyleSheet(QString::fromUtf8("font: 15pt \"Papyrus\";\n"
 "color: \"black\";"));
         label_status->setAlignment(Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter);
